@@ -1,0 +1,38 @@
+# fly.toml app configuration file generated for factorio-server-broken-water-1188 on 2025-05-22T22:06:42+01:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'factorio-server-broken-water-1188'
+primary_region = 'lhr'
+
+[build]
+
+[env]
+  DLC_SPACE_AGE = 'false'
+  GENERATE_NEW_SAVE = 'true'
+  SAVE_NAME = 'going_big'
+
+[[mounts]]
+  source = 'factorio_data'
+  destination = '/data'
+
+[http_service]
+  internal_port = 34197
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+[[services]]
+  protocol = 'udp'
+  internal_port = 34197
+
+  [[services.ports]]
+    port = 34197
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
