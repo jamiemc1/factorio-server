@@ -1,9 +1,9 @@
-# fly.toml app configuration file generated for factorio-server-broken-water-1188 on 2025-05-22T22:06:42+01:00
+# fly.toml app configuration file generated for factorio-server-empty-wind-7378 on 2025-05-23T21:36:18+01:00
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'factorio-server-broken-water-1188'
+app = 'factorio-server-empty-wind-7378'
 primary_region = 'lhr'
 
 [build]
@@ -11,11 +11,12 @@ primary_region = 'lhr'
 [env]
   DLC_SPACE_AGE = 'false'
   GENERATE_NEW_SAVE = 'true'
+  LOAD_LATEST_SAVE = "true"
   SAVE_NAME = 'going_big'
 
 [[mounts]]
   source = 'factorio_data'
-  destination = '/data'
+  destination = '/factorio/saves/'
 
 [http_service]
   internal_port = 34197
