@@ -1,0 +1,17 @@
+[project]
+name = "factorio-server"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Jamie McMillan",email = "jamieishuman@hotmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fsspec[s3] (>=2025.5.1,<2026.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
