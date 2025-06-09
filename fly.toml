@@ -1,29 +1,25 @@
-# fly.toml app configuration file generated for factorio-server-empty-wind-7378 on 2025-05-23T21:36:18+01:00
+# fly.toml app configuration file generated for factorio-server-sparkling-glitter-5782 on 2025-06-09T20:06:17+01:00
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'factorio-server-empty-wind-7378'
+app = 'factorio-server-sparkling-glitter-5782'
 primary_region = 'lhr'
 
 [build]
 
 [env]
-  DLC_SPACE_AGE = 'false'
-  GENERATE_NEW_SAVE = 'true'
-  LOAD_LATEST_SAVE = "true"
+  DLC_SPACE_AGE = 'true'
+  GENERATE_NEW_SAVE = 'false'
+  LOAD_LATEST_SAVE = 'true'
   SAVE_NAME = 'going_big'
-
-[[mounts]]
-  source = 'factorio_data'
-  destination = '/factorio/saves/'
 
 [http_service]
   internal_port = 34197
   force_https = true
-  auto_stop_machines = 'stop'
+  auto_stop_machines = 'off'
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
   processes = ['app']
 
 [[services]]
@@ -34,6 +30,6 @@ primary_region = 'lhr'
     port = 34197
 
 [[vm]]
-  memory = '1gb'
+  memory = '2gb'
   cpu_kind = 'shared'
   cpus = 1
