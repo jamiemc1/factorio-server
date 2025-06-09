@@ -1,6 +1,7 @@
 import os
 import fsspec
 from argparse import ArgumentParser
+from pathlib import Path
 from s3fs import S3FileSystem
 from datetime import datetime, timezone
 
@@ -51,11 +52,17 @@ def main() -> None:
     if args.upload:
         source = f"/factorio/saves/{save_name}.zip"
         destination = f"{bucket_name}/{save_name}.zip"
-        upload_file(fs, source, destination)
+        try:
+            upload_file(fs, source, destination)
+        except FileNotFoundError:
+            destination = ""
 
         timestamp_string = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
         destination_timestamped = f"{bucket_name}/{save_name}_{timestamp_string}.zip"
-        upload_file(fs, source, destination_timestamped)
+        try:
+            upload_file(fs, source, destination_timestamped)
+        except FileNotFoundError:
+            destination_timestamped = ""
 
         source_autosave = "/factorio/saves/_autosave1.zip"
         destination_autosave = f"{bucket_name}/_autosave1.zip"
@@ -69,8 +76,20 @@ def main() -> None:
     if args.download:
         source = f"{bucket_name}/{save_name}.zip"
         destination = f"/factorio/saves/{save_name}.zip"
-        download_file(fs, source, destination)
-        print(f"File downloaded\n{destination}")
+        try:
+            download_file(fs, source, destination)
+        except FileNotFoundError:
+            destination = ""
+
+        source = f"{bucket_name}/_autosave1.zip"
+        destination_autosave = "/factorio/saves/_autosave1.zip"
+        try:
+            download_file(fs, source, destination_autosave)
+        except FileNotFoundError:
+            destination_autosave = ""
+
+
+        print(f"Files downloaded\n{destination}\n{destination_autosave}")
 
     return None
 
