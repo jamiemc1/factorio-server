@@ -20,7 +20,7 @@
   "password": "",
 
   "_comment_token": "Authentication token. May be used instead of 'password' above.",
-  "token": "",
+  "token": "replaceThisToken",
 
   "game_password": "banana",
 
