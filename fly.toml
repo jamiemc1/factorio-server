@@ -1,9 +1,9 @@
-# fly.toml app configuration file generated for factorio-server-sparkling-glitter-5782 on 2025-06-09T20:06:17+01:00
+# fly.toml app configuration file generated for factorio-server-holy-cherry-5608 on 2025-08-26T19:45:08+01:00
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'factorio-server-sparkling-glitter-5782'
+app = 'factorio-server-holy-cherry-5608'
 primary_region = 'lhr'
 
 [build]
@@ -12,7 +12,7 @@ primary_region = 'lhr'
   DLC_SPACE_AGE = 'true'
   GENERATE_NEW_SAVE = 'false'
   LOAD_LATEST_SAVE = 'true'
-  SAVE_NAME = 'going_big'
+  SAVE_NAME = '_autosave1'
 
 [http_service]
   internal_port = 34197
@@ -32,4 +32,4 @@ primary_region = 'lhr'
 [[vm]]
   memory = '2gb'
   cpu_kind = 'shared'
-  cpus = 1
+  cpus = 2
