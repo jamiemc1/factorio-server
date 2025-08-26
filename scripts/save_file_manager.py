@@ -83,10 +83,7 @@ def main() -> None:
 
         source = f"{bucket_name}/_autosave1.zip"
         destination_autosave = "/factorio/saves/_autosave1.zip"
-        try:
-            download_file(fs, source, destination_autosave)
-        except FileNotFoundError:
-            destination_autosave = ""
+        download_file(fs, source, destination_autosave)
 
 
         print(f"Files downloaded\n{destination}\n{destination_autosave}")
