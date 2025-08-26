@@ -179,3 +179,4 @@ cython_debug/
 
 # Secrets
 .fly/secrets.dev
+.factorio_token.dev
