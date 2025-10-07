@@ -14,7 +14,7 @@ from typing import Set
 
 sys.path.insert(0, os.path.dirname(__file__))
 from discord_notifier import DiscordNotifier
-from factorio_rcon import FactorioRCON
+from rcon_client import FactorioRCON
 
 
 class PlayerMonitor:
