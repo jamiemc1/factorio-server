@@ -72,5 +72,11 @@
   "minimum_segment_size": 25,
   "minimum_segment_size_peer_count": 20,
   "maximum_segment_size": 100,
-  "maximum_segment_size_peer_count": 10
+  "maximum_segment_size_peer_count": 10,
+
+  "_comment_rcon": "RCON settings for remote server management",
+  "rcon": {
+    "port": 27015,
+    "password":  "replaceThisRCON"
+  }
 }

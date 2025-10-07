@@ -1,0 +1,66 @@
+#!/bin/bash
+set -euo pipefail
+
+# Factorio server entrypoint with Discord integration
+# This script wraps the Factorio server startup and manages notifications
+
+POETRY_BIN="/root/.local/bin/poetry"
+PYTHON_BIN="python3"
+
+# Function to send startup notification
+send_startup_notification() {
+    echo "Sending startup notification to Discord..."
+    $POETRY_BIN run $PYTHON_BIN /factorio/scripts/startup_notify.py || echo "Failed to send startup notification"
+}
+
+# Function to send shutdown notification
+send_shutdown_notification() {
+    echo "Sending shutdown notification to Discord..."
+    $POETRY_BIN run $PYTHON_BIN /factorio/scripts/shutdown_notify.py || echo "Failed to send shutdown notification"
+}
+
+# Function to start player monitor in background
+start_player_monitor() {
+    echo "Starting player monitor..."
+    $POETRY_BIN run $PYTHON_BIN /factorio/scripts/player_monitor.py --interval 300 &
+    PLAYER_MONITOR_PID=$!
+    echo "Player monitor started with PID $PLAYER_MONITOR_PID"
+}
+
+# Trap shutdown signals
+shutdown() {
+    echo "Received shutdown signal"
+    send_shutdown_notification
+
+    # Kill player monitor if running
+    if [ ! -z "${PLAYER_MONITOR_PID:-}" ]; then
+        echo "Stopping player monitor (PID $PLAYER_MONITOR_PID)..."
+        kill -TERM "$PLAYER_MONITOR_PID" 2>/dev/null || true
+        wait "$PLAYER_MONITOR_PID" 2>/dev/null || true
+    fi
+
+    # Kill Factorio server if running
+    if [ ! -z "${FACTORIO_PID:-}" ]; then
+        echo "Stopping Factorio server (PID $FACTORIO_PID)..."
+        kill -TERM "$FACTORIO_PID" 2>/dev/null || true
+        wait "$FACTORIO_PID" 2>/dev/null || true
+    fi
+
+    exit 0
+}
+
+trap shutdown SIGTERM SIGINT
+
+# Send startup notification
+send_startup_notification
+
+# Start player monitor in background (wait a bit for server to be ready)
+(sleep 30 && start_player_monitor) &
+
+# Start Factorio server
+echo "Starting Factorio server..."
+exec /docker-entrypoint.sh &
+FACTORIO_PID=$!
+
+# Wait for Factorio process
+wait "$FACTORIO_PID"

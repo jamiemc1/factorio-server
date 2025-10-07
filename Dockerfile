@@ -18,5 +18,9 @@ RUN echo "alias upload='/root/.local/bin/poetry run python3 /factorio/scripts/sa
 RUN export $(cat secrets.dev | xargs) && \
     /root/.local/bin/poetry run python3 /factorio/scripts/save_file_manager.py --download
 
-    
+# Copy and set up entrypoint script
+COPY ./scripts/entrypoint.sh /factorio/entrypoint.sh
+RUN chmod +x /factorio/entrypoint.sh
 
+# Override the default entrypoint to use our wrapper script
+ENTRYPOINT ["/factorio/entrypoint.sh"]

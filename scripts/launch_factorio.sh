@@ -1,11 +1,14 @@
 #!/bin/bash
 
 tokenSecretFile=".factorio_token.dev"
+rconSecretFile=".factorio_rcon.dev"
 token="$(/bin/cat ${tokenSecretFile})"
+rconPassword="$(/bin/cat ${rconSecretFile})"
 settingFile="config/server-settings.json"
 settingFileBackup="config/server-settings.json.old"
 cp ${settingFile} ${settingFileBackup}
 sed "s/replaceThisToken/${token}/" ${settingFileBackup} > ${settingFile}
+sed -i "" "s/replaceThisRCON/${rconPassword}/" ${settingFile}
 
 fly launch \
   --name "factorio-server" \
