@@ -1,10 +1,11 @@
 #!/bin/bash
-temporaryLog="/tmp/apps.log"
-fly apps list | cut -f1 | sed '/NAME/d;/^$/d' > ${temporaryLog}
+# Stop the Factorio server (scales to 0 machines, stops billing)
+# All data and configuration are preserved
 
-while read app
-do
-  fly apps destroy $app --yes
-done < ${temporaryLog}
+APP_NAME=$(grep "^app = " fly.toml | cut -d "'" -f 2)
 
-rm ${temporaryLog}
+echo "Stopping Factorio server: $APP_NAME"
+fly scale count 0 --app "$APP_NAME" --yes
+
+echo "Server stopped. No machines running, billing paused."
+echo "To restart, run: ./scripts/launch_factorio.sh"
