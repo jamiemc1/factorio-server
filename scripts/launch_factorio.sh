@@ -1,4 +1,5 @@
 #!/bin/bash
+# Deploy script - Run this to deploy/redeploy to existing Fly.io app
 
 tokenSecretFile=".factorio_token.dev"
 rconSecretFile=".factorio_rcon.dev"
@@ -10,23 +11,10 @@ cp ${settingFile} ${settingFileBackup}
 sed "s/replaceThisToken/${token}/" ${settingFileBackup} > ${settingFile}
 sed -i "" "s/replaceThisRCON/${rconPassword}/" ${settingFile}
 
-fly launch \
-  --name "factorio-server" \
-  --no-github-workflow \
-  --config fly.toml \
-  --copy-config \
-  --no-cache \
-  --yes \
-  --no-public-ips \
-  --no-deploy \
-
-fly ips \
-	allocate-v4 \
-	--shared
-
-
+# Update secrets (in case they changed)
 cat .fly/secrets.dev | fly secrets import
 
+# Deploy to existing app
 fly deploy . \
   --no-cache \
   --ha=false \

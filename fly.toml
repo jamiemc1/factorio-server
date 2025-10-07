@@ -1,9 +1,9 @@
-# fly.toml app configuration file generated for factorio-server-late-river-1 on 2025-10-07T21:28:39+01:00
+# fly.toml app configuration file generated for factorio-server-lively-sun-414 on 2025-10-07T22:54:48+01:00
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'factorio-server-late-river-1'
+app = 'factorio-server-lively-sun-414'
 primary_region = 'lhr'
 
 [build]
