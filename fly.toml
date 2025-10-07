@@ -1,9 +1,9 @@
-# fly.toml app configuration file generated for factorio-server-holy-frost-9017 on 2025-09-25T20:46:10+01:00
+# fly.toml app configuration file generated for factorio-server-damp-paper-1134 on 2025-10-07T20:37:11+01:00
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'factorio-server-holy-frost-9017'
+app = 'factorio-server-damp-paper-1134'
 primary_region = 'lhr'
 
 [build]

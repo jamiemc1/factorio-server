@@ -6,10 +6,13 @@ about player status changes.
 """
 
 import argparse
+import os
 import time
 import signal
 import sys
 from typing import Set
+
+sys.path.insert(0, os.path.dirname(__file__))
 from discord_notifier import DiscordNotifier
 from factorio_rcon import FactorioRCON
 
