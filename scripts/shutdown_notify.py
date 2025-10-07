@@ -5,6 +5,9 @@ Sends a Discord notification when the server is shutting down.
 """
 
 import os
+import sys
+sys.path.insert(0, os.path.dirname(__file__))
+
 from discord_notifier import DiscordNotifier
 
 

@@ -59,7 +59,7 @@ send_startup_notification
 
 # Start Factorio server
 echo "Starting Factorio server..."
-exec /docker-entrypoint.sh &
+/docker-entrypoint.sh &
 FACTORIO_PID=$!
 
 # Wait for Factorio process
