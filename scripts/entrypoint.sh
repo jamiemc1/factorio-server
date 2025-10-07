@@ -7,6 +7,16 @@ set -euo pipefail
 POETRY_BIN="/root/.local/bin/poetry"
 PYTHON_BIN="python3"
 
+# Inject RCON password if RCON_PASSWORD is set
+if [ -n "${RCON_PASSWORD:-}" ]; then
+    echo "Configuring RCON password..."
+    # The base image reads RCON password from /factorio/config/rconpw
+    echo -n "$RCON_PASSWORD" > /factorio/config/rconpw
+    # Also update server-settings.json for consistency
+    jq --arg pwd "$RCON_PASSWORD" '.rcon.password = $pwd' /factorio/config/server-settings.json > /tmp/server-settings.json.tmp
+    mv /tmp/server-settings.json.tmp /factorio/config/server-settings.json
+fi
+
 # Function to send startup notification
 send_startup_notification() {
     echo "Sending startup notification to Discord..."
@@ -28,7 +38,14 @@ start_player_monitor() {
 }
 
 # Trap shutdown signals
+SHUTDOWN_INITIATED=false
 shutdown() {
+    # Prevent duplicate shutdown notifications
+    if [ "$SHUTDOWN_INITIATED" = true ]; then
+        return
+    fi
+    SHUTDOWN_INITIATED=true
+
     echo "Received shutdown signal"
     send_shutdown_notification
 
