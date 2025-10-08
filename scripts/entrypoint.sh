@@ -23,6 +23,12 @@ send_startup_notification() {
     $POETRY_BIN run $PYTHON_BIN /factorio/scripts/startup_notify.py || echo "Failed to send startup notification"
 }
 
+# Function to upload save files to S3
+upload_save_files() {
+    echo "Uploading save files to S3..."
+    $POETRY_BIN run $PYTHON_BIN /factorio/scripts/save_file_manager.py --upload || echo "Failed to upload save files"
+}
+
 # Function to send shutdown notification
 send_shutdown_notification() {
     echo "Sending shutdown notification to Discord..."
@@ -32,7 +38,7 @@ send_shutdown_notification() {
 # Function to start player monitor in background
 start_player_monitor() {
     echo "Starting player monitor..."
-    $POETRY_BIN run $PYTHON_BIN /factorio/scripts/player_monitor.py --interval 300 &
+    $POETRY_BIN run $PYTHON_BIN /factorio/scripts/player_monitor.py --interval 600 &
     PLAYER_MONITOR_PID=$!
     echo "Player monitor started with PID $PLAYER_MONITOR_PID"
 }
@@ -47,7 +53,6 @@ shutdown() {
     SHUTDOWN_INITIATED=true
 
     echo "Received shutdown signal"
-    send_shutdown_notification
 
     # Kill player monitor if running
     if [ ! -z "${PLAYER_MONITOR_PID:-}" ]; then
@@ -62,6 +67,12 @@ shutdown() {
         kill -TERM "$FACTORIO_PID" 2>/dev/null || true
         wait "$FACTORIO_PID" 2>/dev/null || true
     fi
+
+    # Upload save files to S3 before shutting down
+    upload_save_files
+
+    # Send shutdown notification
+    send_shutdown_notification
 
     exit 0
 }
