@@ -25,7 +25,8 @@ fly ips \
 	allocate-v4 \
 	--shared
 
-cat .fly/secrets.dev | fly secrets import
+# Import secrets - filter out comments and empty lines
+grep -v '^\s*#' .fly/secrets.dev | grep -v '^\s*$' | fly secrets import
 
 fly deploy . \
   --no-cache \

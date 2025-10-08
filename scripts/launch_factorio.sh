@@ -11,8 +11,8 @@ cp ${settingFile} ${settingFileBackup}
 sed "s/replaceThisToken/${token}/" ${settingFileBackup} > ${settingFile}
 sed -i "" "s/replaceThisRCON/${rconPassword}/" ${settingFile}
 
-# Update secrets (in case they changed)
-cat .fly/secrets.dev | fly secrets import
+# Update secrets (in case they changed) - filter out comments and empty lines
+grep -v '^\s*#' .fly/secrets.dev | grep -v '^\s*$' | fly secrets import
 
 # Deploy to existing app
 fly deploy . \

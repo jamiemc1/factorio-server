@@ -54,18 +54,18 @@ shutdown() {
 
     echo "Received shutdown signal"
 
-    # Kill player monitor if running
+    # Kill player monitor immediately
     if [ ! -z "${PLAYER_MONITOR_PID:-}" ]; then
         echo "Stopping player monitor (PID $PLAYER_MONITOR_PID)..."
         kill -TERM "$PLAYER_MONITOR_PID" 2>/dev/null || true
-        wait "$PLAYER_MONITOR_PID" 2>/dev/null || true
     fi
 
-    # Kill Factorio server if running
+    # Signal Factorio server to shutdown (triggers autosave)
     if [ ! -z "${FACTORIO_PID:-}" ]; then
         echo "Stopping Factorio server (PID $FACTORIO_PID)..."
         kill -TERM "$FACTORIO_PID" 2>/dev/null || true
-        wait "$FACTORIO_PID" 2>/dev/null || true
+        # Give Factorio a moment to start saving, but don't wait for full shutdown
+        sleep 2
     fi
 
     # Upload save files to S3 before shutting down
@@ -73,6 +73,14 @@ shutdown() {
 
     # Send shutdown notification
     send_shutdown_notification
+
+    # Now wait for processes to finish if they're still running
+    if [ ! -z "${PLAYER_MONITOR_PID:-}" ]; then
+        wait "$PLAYER_MONITOR_PID" 2>/dev/null || true
+    fi
+    if [ ! -z "${FACTORIO_PID:-}" ]; then
+        wait "$FACTORIO_PID" 2>/dev/null || true
+    fi
 
     exit 0
 }

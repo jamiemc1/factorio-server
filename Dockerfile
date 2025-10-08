@@ -15,7 +15,7 @@ RUN curl -sSL https://install.python-poetry.org | python3 - && \
 RUN echo "alias download='/root/.local/bin/poetry run python3 /factorio/scripts/save_file_manager.py --download'" >> /root/.bashrc
 RUN echo "alias upload='/root/.local/bin/poetry run python3 /factorio/scripts/save_file_manager.py --upload'" >> /root/.bashrc
 
-RUN export $(cat secrets.dev | xargs) && \
+RUN export $(grep -v '^\s*#' secrets.dev | grep -v '^\s*$' | xargs) && \
     /root/.local/bin/poetry run python3 /factorio/scripts/save_file_manager.py --download
 
 # Copy and set up entrypoint script
