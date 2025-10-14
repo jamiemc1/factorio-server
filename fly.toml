@@ -1,13 +1,12 @@
-# fly.toml app configuration file generated for factorio-server-withered-wildflower-7639 on 2025-10-08T19:42:37+01:00
+# fly.toml app configuration file generated for factorio-server-spring-hill-3434 on 2025-10-09T20:21:42+01:00
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'factorio-server-withered-wildflower-7639'
+app = 'factorio-server-spring-hill-3434'
 primary_region = 'lhr'
-
-kill_signal = "SIGTERM"
-kill_timeout = 30
+kill_signal = 'SIGTERM'
+kill_timeout = '30s'
 
 [build]
 
