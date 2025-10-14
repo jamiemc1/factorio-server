@@ -38,7 +38,7 @@ send_shutdown_notification() {
 # Function to start player monitor in background
 start_player_monitor() {
     echo "Starting player monitor..."
-    $POETRY_BIN run $PYTHON_BIN /factorio/scripts/player_monitor.py --interval 600 &
+    $POETRY_BIN run $PYTHON_BIN /factorio/scripts/player_monitor.py --interval 600 --no-status &
     PLAYER_MONITOR_PID=$!
     echo "Player monitor started with PID $PLAYER_MONITOR_PID"
 }
