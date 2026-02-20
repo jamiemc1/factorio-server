@@ -1,4 +1,4 @@
-FROM factoriotools/factorio:stable
+FROM factoriotools/factorio:2.0.73
 
 ENV POETRY_VIRTUALENVS_CREATE=0
 WORKDIR /factorio
