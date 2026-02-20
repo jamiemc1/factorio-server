@@ -6,7 +6,7 @@
 app = 'factorio-server-long-leaf-7987'
 primary_region = 'lhr'
 kill_signal = 'SIGTERM'
-kill_timeout = '30s'
+kill_timeout = '120s'
 
 [build]
 
