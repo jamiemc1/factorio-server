@@ -1,9 +1,9 @@
-# fly.toml app configuration file generated for factorio-server-spring-hill-3434 on 2025-10-09T20:21:42+01:00
+# fly.toml app configuration file generated for factorio-server-long-leaf-7987 on 2025-11-06T21:04:43Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'factorio-server-spring-hill-3434'
+app = 'factorio-server-long-leaf-7987'
 primary_region = 'lhr'
 kill_signal = 'SIGTERM'
 kill_timeout = '30s'
