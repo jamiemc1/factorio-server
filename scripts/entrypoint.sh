@@ -21,8 +21,16 @@ if [ -n "${RCON_PASSWORD:-}" ]; then
     mv /tmp/server-settings.json.tmp /factorio/config/server-settings.json
 fi
 
+notifications_enabled() {
+    [ "${DISCORD_NOTIFICATIONS:-true}" = "true" ]
+}
+
 # Function to send startup notification
 send_startup_notification() {
+    if ! notifications_enabled; then
+        log "Discord notifications disabled, skipping startup notification"
+        return
+    fi
     log "Sending startup notification to Discord..."
     $POETRY_BIN run $PYTHON_BIN /factorio/scripts/startup_notify.py || log "Failed to send startup notification"
 }
@@ -44,6 +52,10 @@ upload_save_files() {
 
 # Function to send shutdown notification
 send_shutdown_notification() {
+    if ! notifications_enabled; then
+        log "Discord notifications disabled, skipping shutdown notification"
+        return
+    fi
     log "Sending shutdown notification to Discord..."
     $POETRY_BIN run $PYTHON_BIN /factorio/scripts/shutdown_notify.py || log "Failed to send shutdown notification"
 }
