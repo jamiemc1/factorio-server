@@ -68,11 +68,13 @@ def main() -> None:
     )
 
     bucket_name = os.environ.get("AWS_BUCKET_NAME")
-    save_name = os.environ.get("SAVE_NAME")
+    save_name = os.environ.get("SAVE_NAME", "_autosave1")
 
-    if not bucket_name or not save_name:
-        log(f"FATAL: Missing AWS_BUCKET_NAME or SAVE_NAME (bucket={bucket_name}, save={save_name})")
+    if not bucket_name:
+        log("FATAL: Missing AWS_BUCKET_NAME")
         sys.exit(1)
+
+    log(f"Using bucket={bucket_name}, save_name={save_name}")
 
     if args.upload:
         had_failure = False
