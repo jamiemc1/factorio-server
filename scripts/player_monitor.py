@@ -10,11 +10,15 @@ import os
 import time
 import signal
 import sys
+from pathlib import Path
 from typing import Set
 
 sys.path.insert(0, os.path.dirname(__file__))
 from discord_notifier import DiscordNotifier
 from rcon_client import FactorioRCON
+from save_file_manager import upload_file, log
+
+from s3fs import S3FileSystem
 
 
 class PlayerMonitor:
@@ -41,6 +45,36 @@ class PlayerMonitor:
         self.rcon = FactorioRCON()
         self.previous_players: Set[str] = set()
         self.running = True
+        self.last_uploaded_mtime: float = 0.0
+        self.s3_filesystem = self._create_s3_filesystem()
+        self.save_name = os.environ.get("SAVE_NAME", "_autosave1")
+        self.bucket_name = os.environ.get("AWS_BUCKET_NAME", "")
+        self.save_path = Path(f"/factorio/saves/{self.save_name}.zip")
+
+    def _create_s3_filesystem(self) -> S3FileSystem | None:
+        key = os.environ.get("AWS_ACCESS_KEY_ID")
+        secret = os.environ.get("AWS_SECRET_ACCESS_KEY")
+        endpoint_url = os.environ.get("AWS_ENDPOINT_URL_S3")
+        if not all([key, secret, endpoint_url]):
+            log("Save upload disabled: missing AWS credentials")
+            return None
+        return S3FileSystem(key=key, secret=secret, endpoint_url=endpoint_url)
+
+    def upload_save_if_changed(self) -> None:
+        if not self.s3_filesystem or not self.bucket_name:
+            return
+        if not self.save_path.exists():
+            return
+        current_mtime = self.save_path.stat().st_mtime
+        if current_mtime == self.last_uploaded_mtime:
+            return
+        destination = f"{self.bucket_name}/{self.save_name}.zip"
+        try:
+            upload_file(self.s3_filesystem, str(self.save_path), destination)
+            self.last_uploaded_mtime = current_mtime
+            log(f"Periodic save upload: {destination}")
+        except OSError as error:
+            log(f"Periodic save upload failed: {error}")
 
     def handle_shutdown(self, signum, frame):
         """Handle shutdown signals gracefully."""
@@ -85,6 +119,7 @@ class PlayerMonitor:
 
         while self.running:
             self.check_players()
+            self.upload_save_if_changed()
             time.sleep(self.check_interval)
 
 
