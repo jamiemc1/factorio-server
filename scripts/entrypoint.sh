@@ -106,6 +106,10 @@ shutdown() {
         log "Factorio server exited after ${wait_count}s"
     fi
 
+    # Debug: check what's actually in the saves directory at upload time
+    log "DEBUG: Contents of /factorio/saves/:"
+    ls -la /factorio/saves/ 2>&1 | while read line; do log "  $line"; done
+
     # Upload save files to S3
     upload_save_files || log "WARNING: Upload failed, save may not be persisted"
 
