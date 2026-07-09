@@ -1,12 +1,12 @@
-# fly.toml app configuration file generated for factorio-server-long-leaf-7987 on 2025-11-06T21:04:43Z
+# fly.toml app configuration file generated for dnp-factorio-server on 2026-07-05T19:18:45+09:30
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'factorio-server-long-leaf-7987'
-primary_region = 'lhr'
+app = 'dnp-factorio-server'
+primary_region = 'syd'
 kill_signal = 'SIGTERM'
-kill_timeout = '120s'
+kill_timeout = '2m0s'
 
 [build]
 
@@ -35,3 +35,4 @@ kill_timeout = '120s'
   memory = '2gb'
   cpu_kind = 'shared'
   cpus = 8
+  memory_mb = 2048

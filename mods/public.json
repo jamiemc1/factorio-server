@@ -1,0 +1,33 @@
+{
+  "_comment": "Public mods to install from the Factorio mod portal. List mod names only; the latest release of each is fetched at launch and cached in S3 (each version downloaded at most once). Built-in/DLC mods (base, space-age, quality, elevated-rails) are enabled but not downloaded.",
+  "mods": [
+    "base",
+    "elevated-rails",
+    "aai-containers",
+    "aai-industry",
+    "aai-signal-transmission",
+    "alien-biomes",
+    "alien-biomes-graphics",
+    "BottleneckLite",
+    "bullet-trails",
+    "combat-mechanics-overhaul",
+    "CursorEnhancements",
+    "cybersyn",
+    "DiscoScience",
+    "even-distribution",
+    "flib",
+    "informatron",
+    "jetpack",
+    "RateCalculator",
+    "robot_attrition",
+    "shield-projector",
+    "space-exploration",
+    "space-exploration-graphics",
+    "space-exploration-graphics-2",
+    "space-exploration-graphics-3",
+    "space-exploration-graphics-4",
+    "space-exploration-graphics-5",
+    "space-exploration-postprocess",
+    "textplates"
+  ]
+}

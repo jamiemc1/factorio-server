@@ -1,9 +1,10 @@
-FROM factoriotools/factorio:2.0.73
+FROM factoriotools/factorio:2.1.9
 
 ENV POETRY_VIRTUALENVS_CREATE=0
 WORKDIR /factorio
 COPY ./config config
 COPY ./scripts scripts
+COPY ./mods mods
 COPY pyproject.toml poetry.lock ./
 COPY .fly/secrets.dev ./
 RUN apt update && \

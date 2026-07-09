@@ -174,3 +174,5 @@ site
 # PyPI configuration file
 **/.pypirc
 fly.toml
+
+/tmp

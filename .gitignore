@@ -181,3 +181,7 @@ cython_debug/
 .fly/secrets.dev
 .factorio_token.dev
 .factorio_rcon.dev
+
+tmp
+
+mods/private/*.zip

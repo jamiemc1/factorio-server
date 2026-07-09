@@ -127,6 +127,18 @@ trap shutdown SIGTERM SIGINT
 # Send startup notification
 send_startup_notification
 
+# Assemble /factorio/mods from private (baked-in) and public (S3-cached) sources
+sync_mods() {
+    log "Syncing mods (private + S3-cached public)..."
+    if $POETRY_BIN run $PYTHON_BIN /factorio/scripts/mod_manager.py --sync; then
+        log "Mod sync completed"
+    else
+        log "FATAL: Mod sync failed — aborting startup to avoid loading a mismatched mod set"
+        exit 1
+    fi
+}
+sync_mods
+
 # Start player monitor in background (wait a bit for server to be ready)
 (sleep 30 && start_player_monitor) &
 
