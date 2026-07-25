@@ -11,13 +11,20 @@ kill_timeout = '2m0s'
 [build]
 
 [env]
-  DLC_SPACE_AGE = 'true'
+  # Enable only the elevated-rails DLC mod (disables space-age + quality).
+  # This env var accepts a space-separated list of DLC mod names.
+  DLC_SPACE_AGE = 'elevated-rails'
   GENERATE_NEW_SAVE = 'false'
   LOAD_LATEST_SAVE = 'true'
   SAVE_NAME = '_autosave1'
+  # Go supervisor web interface (log stream + RCON console).
+  WEB_ENABLED = 'true'
+  WEB_ADDR = ':8080'
 
+# HTTP service fronts the supervisor's web interface (log stream, player list,
+# RCON console). The Factorio game itself is exposed via the UDP service below.
 [http_service]
-  internal_port = 34197
+  internal_port = 8080
   force_https = true
   auto_stop_machines = 'off'
   auto_start_machines = true

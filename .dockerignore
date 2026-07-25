@@ -176,3 +176,7 @@ site
 fly.toml
 
 /tmp
+
+# Go build artifacts (the supervisor is compiled inside the image).
+supervisor/factorio-supervisor
+**/*.test
