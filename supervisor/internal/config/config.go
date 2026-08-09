@@ -45,14 +45,32 @@ type Config struct {
 	WebEnabled bool
 	WebAddr    string
 
+	// Game install. FactorioVersion is an exact "x.y.z" or a channel keyword
+	// ("experimental" / "stable") resolved against the Factorio releases API.
+	FactorioVersion string
+	GameDir         string
+	DefaultsDir     string
+
+	// Server launch options, previously handled by the base image's
+	// /docker-entrypoint.sh.
+	GamePort           int
+	LoadLatestSave     bool
+	GenerateNewSave    bool
+	Preset             string
+	Bind               string
+	ConsoleLogLocation string
+	DLCSpaceAge        string
+
 	// Paths (overridable mainly for tests; sensible container defaults).
 	SavesDir            string
 	ModsDir             string
 	PrivateModsDir      string
 	PublicModsJSON      string
+	ScenariosDir        string
+	ScriptOutputDir     string
+	ConfigDir           string
 	ServerSettingsPath  string
 	RCONPasswordFile    string
-	DockerEntrypoint    string
 	ShutdownGracePeriod time.Duration
 }
 
@@ -78,30 +96,50 @@ func Load() (*Config, error) {
 		MonitorStatus:        getenvBool("MONITOR_STATUS", false),
 		WebEnabled:           getenvBool("WEB_ENABLED", true),
 		WebAddr:              getenv("WEB_ADDR", ":8080"),
+		FactorioVersion:      getenv("FACTORIO_VERSION", "experimental"),
+		GameDir:              getenv("GAME_DIR", "/factorio/game"),
+		DefaultsDir:          getenv("DEFAULTS_DIR", "/opt/defaults"),
+		GamePort:             getenvInt("PORT", 34197),
+		LoadLatestSave:       getenvBool("LOAD_LATEST_SAVE", true),
+		GenerateNewSave:      getenvBool("GENERATE_NEW_SAVE", false),
+		Preset:               os.Getenv("PRESET"),
+		Bind:                 os.Getenv("BIND"),
+		ConsoleLogLocation:   os.Getenv("CONSOLE_LOG_LOCATION"),
+		DLCSpaceAge:          getenv("DLC_SPACE_AGE", "true"),
 		SavesDir:             getenv("SAVES_DIR", "/factorio/saves"),
 		ModsDir:              getenv("MODS_DIR", "/factorio/mods"),
 		PrivateModsDir:       getenv("PRIVATE_MODS_DIR", "/factorio/mods/private"),
 		PublicModsJSON:       getenv("PUBLIC_MODS_JSON", "/factorio/mods/public.json"),
+		ScenariosDir:         getenv("SCENARIOS_DIR", "/factorio/scenarios"),
+		ScriptOutputDir:      getenv("SCRIPT_OUTPUT_DIR", "/factorio/script-output"),
+		ConfigDir:            getenv("CONFIG_DIR", "/factorio/config"),
 		ServerSettingsPath:   getenv("SERVER_SETTINGS_PATH", "/factorio/config/server-settings.json"),
 		RCONPasswordFile:     getenv("RCON_PASSWORD_FILE", "/factorio/config/rconpw"),
-		DockerEntrypoint:     getenv("DOCKER_ENTRYPOINT", "/docker-entrypoint.sh"),
 		ShutdownGracePeriod:  time.Duration(getenvInt("SHUTDOWN_GRACE_SECONDS", 60)) * time.Second,
 	}
 
-	// If portal credentials are absent, fall back to server-settings.json — the
-	// same account works for both the game and the mod portal download endpoint.
-	if c.FactorioUsername == "" || c.FactorioToken == "" {
-		if u, t, ok := credsFromServerSettings(c.ServerSettingsPath); ok {
-			if c.FactorioUsername == "" {
-				c.FactorioUsername = u
-			}
-			if c.FactorioToken == "" {
-				c.FactorioToken = t
-			}
-		}
-	}
-
+	c.ResolvePortalCredentials()
 	return c, nil
+}
+
+// ResolvePortalCredentials fills in missing mod-portal credentials from
+// server-settings.json — the same account works for both the game and the
+// portal's download endpoint. It is called again after the volume is seeded,
+// because on a cold volume server-settings.json does not exist yet at Load time.
+func (c *Config) ResolvePortalCredentials() {
+	if c.FactorioUsername != "" && c.FactorioToken != "" {
+		return
+	}
+	u, t, ok := credsFromServerSettings(c.ServerSettingsPath)
+	if !ok {
+		return
+	}
+	if c.FactorioUsername == "" {
+		c.FactorioUsername = u
+	}
+	if c.FactorioToken == "" {
+		c.FactorioToken = t
+	}
 }
 
 // S3Configured reports whether enough is set to talk to object storage.
@@ -166,8 +204,8 @@ func getenvBool(key string, def bool) bool {
 // String returns a redacted, human-readable summary for startup logging.
 func (c *Config) String() string {
 	return fmt.Sprintf(
-		"server=%q rcon=%s:%d discord=%t s3=%t bucket=%q save=%q monitor=%s web=%t@%s",
-		c.ServerName, c.RCONHost, c.RCONPort, c.DiscordConfigured(),
+		"server=%q version=%s rcon=%s:%d discord=%t s3=%t bucket=%q save=%q monitor=%s web=%t@%s",
+		c.ServerName, c.FactorioVersion, c.RCONHost, c.RCONPort, c.DiscordConfigured(),
 		c.S3Configured(), c.AWSBucketName, c.SaveName, c.MonitorInterval,
 		c.WebEnabled, c.WebAddr,
 	)

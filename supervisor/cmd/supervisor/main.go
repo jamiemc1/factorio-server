@@ -1,19 +1,23 @@
-// Command supervisor is the parent process for the Factorio server. It replaces
-// the previous entrypoint.sh + Python scripts: it injects the RCON password,
-// synchronises mods, launches the Factorio server (capturing its stdio into an
-// in-memory log bus for the web interface), runs a player monitor, serves a
-// small HTTP API, and performs a graceful save-and-notify shutdown.
+// Command supervisor is the sole entrypoint for the Factorio server container.
+// It installs the Factorio headless build onto the data volume, seeds the
+// volume from the defaults baked into the image, injects the RCON password,
+// synchronises mods, launches the server (capturing its stdio into an in-memory
+// log bus for the web interface), runs a player monitor, serves a small HTTP
+// API, and performs a graceful save-and-notify shutdown.
 //
 // Subcommands:
 //
-//	supervisor run          launch and supervise the server (default)
-//	supervisor sync-mods    assemble /factorio/mods and exit
-//	supervisor upload       upload saves to S3 and exit
-//	supervisor download     download saves from S3 and exit
+//	supervisor run           launch and supervise the server (default)
+//	supervisor install-game  install the Factorio headless build and exit
+//	supervisor sync-mods     assemble /factorio/mods and exit
+//	supervisor upload        upload saves to S3 and exit
+//	supervisor download      download saves from S3 and exit
 package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"os"
@@ -25,10 +29,12 @@ import (
 	"github.com/thomasalbrighton/factorio-supervisor/internal/config"
 	"github.com/thomasalbrighton/factorio-supervisor/internal/discord"
 	"github.com/thomasalbrighton/factorio-supervisor/internal/factorio"
+	"github.com/thomasalbrighton/factorio-supervisor/internal/gameinstall"
 	"github.com/thomasalbrighton/factorio-supervisor/internal/mods"
 	"github.com/thomasalbrighton/factorio-supervisor/internal/monitor"
 	"github.com/thomasalbrighton/factorio-supervisor/internal/rcon"
 	"github.com/thomasalbrighton/factorio-supervisor/internal/s3"
+	"github.com/thomasalbrighton/factorio-supervisor/internal/server"
 	"github.com/thomasalbrighton/factorio-supervisor/internal/web"
 )
 
@@ -52,6 +58,8 @@ func main() {
 	switch cmd {
 	case "run":
 		os.Exit(runServer(cfg))
+	case "install-game":
+		os.Exit(runInstallGame(cfg))
 	case "sync-mods":
 		os.Exit(runSyncMods(cfg))
 	case "upload":
@@ -59,7 +67,7 @@ func main() {
 	case "download":
 		os.Exit(runSaves(cfg, false))
 	default:
-		logf("FATAL: unknown subcommand %q (want run|sync-mods|upload|download)", cmd)
+		logf("FATAL: unknown subcommand %q (want run|install-game|sync-mods|upload|download)", cmd)
 		os.Exit(2)
 	}
 }
@@ -72,16 +80,37 @@ func newStore(cfg *config.Config) *s3.Store {
 	return s3.New(cfg.AWSAccessKeyID, cfg.AWSSecretAccessKey, cfg.AWSEndpointURL, cfg.AWSBucketName)
 }
 
+// newInstaller builds the game installer, which uses S3 as a cold-start cache
+// for the headless tarball when it is configured.
+func newInstaller(cfg *config.Config) *gameinstall.Installer {
+	return gameinstall.New(gameinstall.Config{
+		GameDir: cfg.GameDir,
+		Store:   newStore(cfg),
+		Log:     logf,
+	})
+}
+
+func runInstallGame(cfg *config.Config) int {
+	dir, err := newInstaller(cfg).Ensure(context.Background(), cfg.FactorioVersion)
+	if err != nil {
+		logf("FATAL: game install failed: %v", err)
+		return 1
+	}
+	logf("Factorio installed at %s", dir)
+	return 0
+}
+
 func runSyncMods(cfg *config.Config) int {
 	ctx := context.Background()
 	m := mods.New(mods.Config{
-		ModsDir:    cfg.ModsDir,
-		PrivateDir: cfg.PrivateModsDir,
-		PublicJSON: cfg.PublicModsJSON,
-		Username:   cfg.FactorioUsername,
-		Token:      cfg.FactorioToken,
-		Store:      newStore(cfg),
-		Log:        logf,
+		ModsDir:     cfg.ModsDir,
+		PrivateDir:  cfg.PrivateModsDir,
+		PublicJSON:  cfg.PublicModsJSON,
+		Username:    cfg.FactorioUsername,
+		Token:       cfg.FactorioToken,
+		DLCSpaceAge: cfg.DLCSpaceAge,
+		Store:       newStore(cfg),
+		Log:         logf,
 	})
 	if err := m.Sync(ctx); err != nil {
 		logf("FATAL: mod sync failed: %v", err)
@@ -114,8 +143,21 @@ func runSaves(cfg *config.Config, upload bool) int {
 func runServer(cfg *config.Config) int {
 	logf("Starting Factorio supervisor: %s", cfg)
 
+	launcher := server.New(cfg, logf)
+
+	// Create the volume tree and lay the image's baked config/mod defaults over
+	// it. The volume mounts empty, so nothing works until this has run.
+	if err := launcher.SeedVolume(); err != nil {
+		logf("FATAL: %v", err)
+		return 1
+	}
+	// server-settings.json only exists once the volume is seeded, so the
+	// credential fallback has to run again now.
+	cfg.ResolvePortalCredentials()
+
 	if err := injectRCONPassword(cfg); err != nil {
-		logf("WARNING: could not inject RCON password: %v", err)
+		logf("FATAL: could not configure RCON password: %v", err)
+		return 1
 	}
 
 	notifier := discord.New("")
@@ -134,18 +176,34 @@ func runServer(cfg *config.Config) int {
 
 	store := newStore(cfg)
 
+	// Install the game onto the volume. On a warm volume this is a stat call;
+	// on a cold one it pulls the headless tarball from the S3 cache or
+	// factorio.com.
+	logf("Ensuring Factorio %s is installed...", cfg.FactorioVersion)
+	installDir, err := newInstaller(cfg).Ensure(context.Background(), cfg.FactorioVersion)
+	if err != nil {
+		logf("FATAL: game install failed: %v", err)
+		return 1
+	}
+	configPath, err := launcher.WriteConfigINI(installDir)
+	if err != nil {
+		logf("FATAL: could not write config.ini: %v", err)
+		return 1
+	}
+
 	var saveMgr *s3.SaveManager
 	if store != nil {
 		saveMgr = s3.NewSaveManager(store, cfg.SavesDir, cfg.SaveName, logf)
 	}
 
-	// Download the latest save from S3 before launch so the machine boots the
-	// newest world, not whatever was baked into the image. A missing save is
-	// not fatal (fresh world); a transport error is, to avoid silently starting
-	// from a stale local save and then overwriting the good S3 copy on shutdown.
+	// Seed the volume's saves from S3 when they are missing or stale, so a
+	// machine that lost its volume still boots the newest world. A missing save
+	// is not fatal (fresh world); a transport error is, to avoid silently
+	// starting from a stale local save and then overwriting the good S3 copy on
+	// shutdown.
 	if saveMgr != nil {
-		logf("Downloading latest save from S3...")
-		if err := saveMgr.Download(context.Background()); err != nil {
+		logf("Checking S3 for a newer save...")
+		if err := saveMgr.DownloadIfNewer(context.Background()); err != nil {
 			logf("FATAL: save download failed — aborting to avoid clobbering the S3 save: %v", err)
 			return 1
 		}
@@ -156,13 +214,14 @@ func runServer(cfg *config.Config) int {
 	// Synchronise mods before launch; a failure aborts to avoid loading a
 	// mismatched mod set (matching the previous entrypoint behaviour).
 	modMgr := mods.New(mods.Config{
-		ModsDir:    cfg.ModsDir,
-		PrivateDir: cfg.PrivateModsDir,
-		PublicJSON: cfg.PublicModsJSON,
-		Username:   cfg.FactorioUsername,
-		Token:      cfg.FactorioToken,
-		Store:      store,
-		Log:        logf,
+		ModsDir:     cfg.ModsDir,
+		PrivateDir:  cfg.PrivateModsDir,
+		PublicJSON:  cfg.PublicModsJSON,
+		Username:    cfg.FactorioUsername,
+		Token:       cfg.FactorioToken,
+		DLCSpaceAge: cfg.DLCSpaceAge,
+		Store:       store,
+		Log:         logf,
 	})
 	logf("Syncing mods (private + S3-cached public)...")
 	if err := modMgr.Sync(context.Background()); err != nil {
@@ -170,9 +229,26 @@ func runServer(cfg *config.Config) int {
 		return 1
 	}
 
+	// Clear partial saves and generate a map if there is nothing to load — the
+	// last of the work the base image's entrypoint used to do.
+	if err := launcher.CleanTempSaves(); err != nil {
+		logf("FATAL: could not clean temporary saves: %v", err)
+		return 1
+	}
+	if err := launcher.EnsureSave(installDir, configPath); err != nil {
+		logf("FATAL: %v", err)
+		return 1
+	}
+
+	args, err := launcher.Args(installDir, configPath, os.Args[2:])
+	if err != nil {
+		logf("FATAL: could not build server arguments: %v", err)
+		return 1
+	}
+
 	// Launch Factorio, capturing its stdio into the log bus.
 	bus := factorio.NewLogBus(2000)
-	proc := factorio.NewProcess(bus, cfg.DockerEntrypoint, os.Args[2:], logf)
+	proc := factorio.NewProcess(bus, gameinstall.Binary(installDir), args, logf)
 	logf("Starting Factorio server...")
 	if err := proc.Start(); err != nil {
 		logf("FATAL: could not start Factorio: %v", err)
@@ -301,11 +377,18 @@ func shutdown(
 	return exitCode
 }
 
-// injectRCONPassword writes the RCON password file the base image reads and
+// injectRCONPassword writes the RCON password file the launcher reads and
 // patches server-settings.json, replacing the jq step from the old entrypoint.
+// When RCON_PASSWORD is unset it generates one (the base image used pwgen), so
+// RCON is always reachable for the monitor and the web console.
 func injectRCONPassword(cfg *config.Config) error {
 	if cfg.RCONPassword == "" {
-		return nil
+		buf := make([]byte, 16)
+		if _, err := rand.Read(buf); err != nil {
+			return fmt.Errorf("generate RCON password: %w", err)
+		}
+		cfg.RCONPassword = hex.EncodeToString(buf)
+		logf("RCON_PASSWORD not set — generated one for this boot")
 	}
 	logf("Configuring RCON password...")
 	if err := os.WriteFile(cfg.RCONPasswordFile, []byte(cfg.RCONPassword), 0o600); err != nil {

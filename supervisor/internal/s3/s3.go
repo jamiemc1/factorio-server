@@ -53,6 +53,25 @@ func (s *Store) Exists(ctx context.Context, key string) (bool, error) {
 	return false, err
 }
 
+// Stat returns an object's size and last-modified time. It returns an error
+// satisfying IsNotFound when the object does not exist.
+func (s *Store) Stat(ctx context.Context, key string) (size int64, modified time.Time, err error) {
+	out, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+	if out.ContentLength != nil {
+		size = *out.ContentLength
+	}
+	if out.LastModified != nil {
+		modified = *out.LastModified
+	}
+	return size, modified, nil
+}
+
 // UploadFile uploads a local file to key.
 func (s *Store) UploadFile(ctx context.Context, localPath, key string) error {
 	f, err := os.Open(localPath)

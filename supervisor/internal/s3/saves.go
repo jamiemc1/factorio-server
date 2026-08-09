@@ -116,6 +116,46 @@ func (m *SaveManager) Download(ctx context.Context) error {
 	return nil
 }
 
+// DownloadIfNewer pulls each save from the bucket only when the local copy is
+// missing or older than S3's. With a persistent volume the local save is
+// normally the freshest copy — it is what the last upload came from — so this
+// keeps warm boots free of save traffic while still recovering the world after
+// a volume loss or an out-of-band restore.
+func (m *SaveManager) DownloadIfNewer(ctx context.Context) error {
+	targets := []struct{ key, dest string }{
+		{m.saveName + ".zip", m.savePath(m.saveName)},
+	}
+	if m.saveName != "_autosave1" {
+		targets = append(targets, struct{ key, dest string }{"_autosave1.zip", filepath.Join(m.savesDir, "_autosave1.zip")})
+	}
+
+	for _, t := range targets {
+		_, remoteMtime, err := m.store.Stat(ctx, t.key)
+		if err != nil {
+			if IsNotFound(err) {
+				m.logf("Not in S3, skipping: %s", t.key)
+				continue
+			}
+			return err
+		}
+		if info, err := os.Stat(t.dest); err == nil {
+			if !remoteMtime.After(info.ModTime()) {
+				m.logf("Local %s is current (S3 copy is not newer) — keeping it", filepath.Base(t.dest))
+				continue
+			}
+			m.logf("S3 copy of %s is newer than the local save — downloading", t.key)
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		m.logf("Downloading s3://%s -> %s", t.key, t.dest)
+		if err := m.store.DownloadFile(ctx, t.key, t.dest); err != nil {
+			return err
+		}
+		m.logf("Downloaded %s", t.dest)
+	}
+	return nil
+}
+
 // UploadIfChanged uploads only the canonical save when its mtime differs from
 // lastMtime, returning the new mtime to remember. Used by the periodic monitor.
 func (m *SaveManager) UploadIfChanged(ctx context.Context, lastMtime int64) (int64, bool, error) {

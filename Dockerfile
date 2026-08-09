@@ -9,12 +9,24 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
     -o /out/factorio-supervisor ./cmd/supervisor
 
 # --- Runtime image -----------------------------------------------------------
-FROM factoriotools/factorio:2.1.14
+# The game itself is no longer baked in: the supervisor downloads the headless
+# build onto the /factorio volume on first boot and reuses it thereafter.
+FROM debian:stable-slim
+
+RUN apt-get -q update \
+    && DEBIAN_FRONTEND=noninteractive apt-get -qy install --no-install-recommends \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# /factorio is the volume mount point and starts empty; the supervisor seeds it
+# from /opt/defaults on every boot, which keeps config and public.json
+# image-authoritative (changing them is a redeploy).
+RUN mkdir -p /factorio
 WORKDIR /factorio
 
 COPY --from=supervisor-build /out/factorio-supervisor /usr/local/bin/factorio-supervisor
-COPY ./files/*.sh /
-COPY ./config config
-COPY ./mods mods
+COPY ./config /opt/defaults/config
+COPY ./mods /opt/defaults/mods
 
+EXPOSE 34197/udp 27015/tcp 8080/tcp
 ENTRYPOINT ["/usr/local/bin/factorio-supervisor", "run"]

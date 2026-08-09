@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -35,6 +36,11 @@ var builtinMods = map[string]bool{
 	"base": true, "space-age": true, "quality": true, "elevated-rails": true,
 }
 
+// dlcMods are the Space Age expansion mods that DLC_SPACE_AGE toggles. Any of
+// these not selected gets an explicit enabled:false entry in mod-list.json,
+// reproducing what the base image's docker-dlc.sh used to do.
+var dlcMods = []string{"elevated-rails", "quality", "space-age", "recycler"}
+
 // Manager performs mod synchronisation.
 type Manager struct {
 	store      *s3.Store // may be nil if no public mods need downloading
@@ -43,6 +49,7 @@ type Manager struct {
 	publicJSON string
 	username   string
 	token      string
+	dlc        string
 	http       *http.Client
 	logf       func(string, ...any)
 }
@@ -54,8 +61,11 @@ type Config struct {
 	PublicJSON string
 	Username   string
 	Token      string
-	Store      *s3.Store
-	Log        func(string, ...any)
+	// DLCSpaceAge is the DLC_SPACE_AGE value: "true", "false", or a
+	// space-separated list of expansion mods to enable.
+	DLCSpaceAge string
+	Store       *s3.Store
+	Log         func(string, ...any)
 }
 
 // New builds a mod Manager.
@@ -71,18 +81,25 @@ func New(cfg Config) *Manager {
 		publicJSON: cfg.PublicJSON,
 		username:   cfg.Username,
 		token:      cfg.Token,
+		dlc:        cfg.DLCSpaceAge,
 		http:       &http.Client{Timeout: 5 * time.Minute},
 		logf:       logf,
 	}
 }
 
-// Sync assembles the mods directory and writes mod-list.json.
+// Sync reconciles the mods directory against public.json and writes
+// mod-list.json.
+//
+// The mods directory lives on the persistent volume, so it is itself the
+// durable cache: only zips that are absent are fetched, and only zips that are
+// no longer wanted are deleted. On a warm boot this touches neither the portal
+// (beyond cheap release metadata) nor S3.
 func (m *Manager) Sync(ctx context.Context) error {
 	publicNames, err := m.loadPublicMods()
 	if err != nil {
 		return err
 	}
-	if err := m.cleanModsDir(); err != nil {
+	if err := os.MkdirAll(m.modsDir, 0o755); err != nil {
 		return err
 	}
 
@@ -98,6 +115,7 @@ func (m *Manager) Sync(ctx context.Context) error {
 		}
 	}
 
+	var releases map[string]portalRelease
 	if len(downloadable) > 0 {
 		if m.store == nil {
 			return fmt.Errorf("public mods listed but S3 cache is not configured")
@@ -105,15 +123,36 @@ func (m *Manager) Sync(ctx context.Context) error {
 		if m.username == "" || m.token == "" {
 			return fmt.Errorf("public mods listed but Factorio portal credentials are missing")
 		}
-		if err := m.syncPublicMods(ctx, downloadable); err != nil {
+		if releases, err = m.resolveReleases(ctx, downloadable); err != nil {
+			return err
+		}
+	}
+
+	// Everything the mods dir should contain once we are done: the resolved
+	// public releases plus the vendored private zips.
+	wanted := make(map[string]bool, len(releases))
+	for _, r := range releases {
+		wanted[r.FileName] = true
+	}
+	privateFiles, privateNames, err := m.privateMods()
+	if err != nil {
+		return err
+	}
+	for _, f := range privateFiles {
+		wanted[f] = true
+	}
+
+	if err := m.pruneModsDir(wanted); err != nil {
+		return err
+	}
+	if len(downloadable) > 0 {
+		if err := m.fetchMissing(ctx, downloadable, releases); err != nil {
 			return err
 		}
 		// Keep public.json order in the enabled list so mod-list.json is stable.
 		enabled = append(enabled, downloadable...)
 	}
-
-	privateNames, err := m.copyPrivateMods()
-	if err != nil {
+	if err := m.copyPrivateMods(privateFiles); err != nil {
 		return err
 	}
 	enabled = append(enabled, privateNames...)
@@ -125,13 +164,53 @@ func (m *Manager) Sync(ctx context.Context) error {
 	return nil
 }
 
-// syncModWorkers is the number of public mods downloaded/cached concurrently.
+// syncModWorkers is the number of public mods resolved/downloaded concurrently.
 const syncModWorkers = 8
 
-// syncPublicMods resolves and caches every downloadable public mod using a pool
-// of worker goroutines. It returns the first error encountered; on error the
-// shared context is cancelled so in-flight downloads stop promptly.
-func (m *Manager) syncPublicMods(ctx context.Context, names []string) error {
+// resolveReleases looks up the latest release of every named mod concurrently.
+func (m *Manager) resolveReleases(ctx context.Context, names []string) (map[string]portalRelease, error) {
+	var mu sync.Mutex
+	out := make(map[string]portalRelease, len(names))
+	err := m.runWorkers(ctx, names, func(ctx context.Context, name string) error {
+		release, err := m.latestRelease(ctx, name)
+		if err != nil {
+			return err
+		}
+		mu.Lock()
+		out[name] = release
+		mu.Unlock()
+		return nil
+	})
+	return out, err
+}
+
+// fetchMissing downloads every resolved release that is not already on disk.
+func (m *Manager) fetchMissing(ctx context.Context, names []string, releases map[string]portalRelease) error {
+	var missing []string
+	for _, name := range names {
+		release, ok := releases[name]
+		if !ok {
+			return fmt.Errorf("no resolved release for %s", name)
+		}
+		if _, err := os.Stat(filepath.Join(m.modsDir, release.FileName)); err == nil {
+			continue
+		}
+		missing = append(missing, name)
+	}
+	if len(missing) == 0 {
+		m.logf("All %d public mods already present on disk", len(names))
+		return nil
+	}
+	m.logf("Fetching %d of %d public mods", len(missing), len(names))
+	return m.runWorkers(ctx, missing, func(ctx context.Context, name string) error {
+		return m.fetchMod(ctx, name, releases[name])
+	})
+}
+
+// runWorkers applies fn to every item using a bounded pool. It returns the first
+// error encountered; on error the shared context is cancelled so in-flight work
+// stops promptly.
+func (m *Manager) runWorkers(ctx context.Context, items []string, fn func(context.Context, string) error) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -142,16 +221,16 @@ func (m *Manager) syncPublicMods(ctx context.Context, names []string) error {
 		firstErr error
 	)
 
-	workers := min(len(names), syncModWorkers)
+	workers := min(len(items), syncModWorkers)
 	for range workers {
 		wg.Go(func() {
-			for name := range jobs {
+			for item := range jobs {
 				if ctx.Err() != nil {
 					return
 				}
-				if err := m.syncPublicMod(ctx, name); err != nil {
+				if err := fn(ctx, item); err != nil {
 					errOnce.Do(func() {
-						firstErr = fmt.Errorf("sync %s: %w", name, err)
+						firstErr = fmt.Errorf("sync %s: %w", item, err)
 						cancel()
 					})
 					return
@@ -161,9 +240,9 @@ func (m *Manager) syncPublicMods(ctx context.Context, names []string) error {
 	}
 
 	// Feed jobs, stopping early if a worker has already failed.
-	for _, name := range names {
+	for _, item := range items {
 		select {
-		case jobs <- name:
+		case jobs <- item:
 		case <-ctx.Done():
 		}
 	}
@@ -193,19 +272,21 @@ func (m *Manager) loadPublicMods() ([]string, error) {
 	return f.Mods, nil
 }
 
-func (m *Manager) cleanModsDir() error {
-	if err := os.MkdirAll(m.modsDir, 0o755); err != nil {
-		return err
-	}
+// pruneModsDir removes zips the current mod set no longer wants — superseded
+// versions and mods dropped from public.json — leaving wanted files in place.
+func (m *Manager) pruneModsDir(wanted map[string]bool) error {
 	entries, err := os.ReadDir(m.modsDir)
 	if err != nil {
 		return err
 	}
 	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".zip") {
-			if err := os.Remove(filepath.Join(m.modsDir, e.Name())); err != nil {
-				return err
-			}
+		name := e.Name()
+		if !strings.HasSuffix(name, ".zip") || wanted[name] {
+			continue
+		}
+		m.logf("Removing stale mod %s", name)
+		if err := os.Remove(filepath.Join(m.modsDir, name)); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -243,33 +324,38 @@ func (m *Manager) portalReleases(ctx context.Context, name string) ([]portalRele
 	return full.Releases, nil
 }
 
-// syncPublicMod ensures the latest release of one public mod is present in the
-// mods dir, using the S3 cache when possible and populating it on a miss.
-func (m *Manager) syncPublicMod(ctx context.Context, name string) error {
+// latestRelease resolves one mod's newest release, normalising FileName so the
+// rest of the package can rely on it.
+func (m *Manager) latestRelease(ctx context.Context, name string) (portalRelease, error) {
 	releases, err := m.portalReleases(ctx, name)
 	if err != nil {
-		return err
+		return portalRelease{}, err
 	}
 	if len(releases) == 0 {
-		return fmt.Errorf("%s has no releases on the portal", name)
+		return portalRelease{}, fmt.Errorf("%s has no releases on the portal", name)
 	}
 	// The portal lists releases chronologically; the last is the latest.
 	release := releases[len(releases)-1]
-	version := release.Version
-	filename := fmt.Sprintf("%s_%s.zip", name, version)
-	localPath := filepath.Join(m.modsDir, filename)
-	cacheKey := "mods/" + filename
+	release.FileName = fmt.Sprintf("%s_%s.zip", name, release.Version)
+	return release, nil
+}
+
+// fetchMod puts one release's zip in the mods dir, using the S3 cache when
+// possible and populating it on a miss.
+func (m *Manager) fetchMod(ctx context.Context, name string, release portalRelease) error {
+	localPath := filepath.Join(m.modsDir, release.FileName)
+	cacheKey := "mods/" + release.FileName
 
 	exists, err := m.store.Exists(ctx, cacheKey)
 	if err != nil {
 		return fmt.Errorf("checking cache for %s: %w", name, err)
 	}
 	if exists {
-		m.logf("Cache hit: %s latest=%s <- s3://%s", name, version, cacheKey)
+		m.logf("Cache hit: %s latest=%s <- s3://%s", name, release.Version, cacheKey)
 		return m.store.DownloadFile(ctx, cacheKey, localPath)
 	}
 
-	m.logf("Cache miss: %s latest=%s, fetching from portal", name, version)
+	m.logf("Cache miss: %s latest=%s, fetching from portal", name, release.Version)
 	if err := m.downloadFromPortal(ctx, release, localPath); err != nil {
 		return err
 	}
@@ -305,19 +391,17 @@ func (m *Manager) downloadFromPortal(ctx context.Context, release portalRelease,
 	return err
 }
 
-// copyPrivateMods copies vendored private zips into the mods dir and returns
-// their internal names (filename minus the trailing _<version>.zip).
-func (m *Manager) copyPrivateMods() ([]string, error) {
+// privateMods lists the vendored private zips: their filenames and their
+// internal mod names (filename minus the trailing _<version>.zip).
+func (m *Manager) privateMods() (files, names []string, err error) {
 	info, err := os.Stat(m.privateDir)
 	if err != nil || !info.IsDir() {
-		return nil, nil
+		return nil, nil, nil
 	}
 	entries, err := os.ReadDir(m.privateDir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	names := make([]string, 0)
-	files := make([]string, 0)
 	for _, e := range entries {
 		if strings.HasSuffix(e.Name(), ".zip") {
 			files = append(files, e.Name())
@@ -325,20 +409,65 @@ func (m *Manager) copyPrivateMods() ([]string, error) {
 	}
 	sort.Strings(files)
 	for _, fname := range files {
-		src := filepath.Join(m.privateDir, fname)
-		dst := filepath.Join(m.modsDir, fname)
-		if err := copyFile(src, dst); err != nil {
-			return nil, err
-		}
 		stem := strings.TrimSuffix(fname, ".zip")
 		internal := stem
 		if i := strings.LastIndex(stem, "_"); i != -1 {
 			internal = stem[:i]
 		}
 		names = append(names, internal)
-		m.logf("Copied private mod: %s (name=%s)", fname, internal)
 	}
-	return names, nil
+	return files, names, nil
+}
+
+// copyPrivateMods copies vendored private zips into the mods dir, skipping any
+// that are already there at the same size.
+func (m *Manager) copyPrivateMods(files []string) error {
+	for _, fname := range files {
+		src := filepath.Join(m.privateDir, fname)
+		dst := filepath.Join(m.modsDir, fname)
+		if sameSize(src, dst) {
+			continue
+		}
+		if err := copyFile(src, dst); err != nil {
+			return err
+		}
+		m.logf("Copied private mod: %s", fname)
+	}
+	return nil
+}
+
+// sameSize reports whether both paths exist with an identical size — enough to
+// tell an already-copied mod zip from a changed one.
+func sameSize(a, b string) bool {
+	ai, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	bi, err := os.Stat(b)
+	if err != nil {
+		return false
+	}
+	return ai.Size() == bi.Size()
+}
+
+// selectedDLC parses DLC_SPACE_AGE into the set of expansion mods to enable.
+// It accepts "true" (all), "false" (none), or a space-separated list, matching
+// the base image's docker-dlc.sh.
+func selectedDLC(value string) map[string]bool {
+	enabled := map[string]bool{}
+	switch strings.TrimSpace(value) {
+	case "true", "":
+		// An unset DLC_SPACE_AGE means the base image's default of "true".
+		for _, name := range dlcMods {
+			enabled[name] = true
+		}
+	case "false":
+	default:
+		for _, name := range strings.Fields(value) {
+			enabled[name] = true
+		}
+	}
+	return enabled
 }
 
 type modListEntry struct {
@@ -351,7 +480,8 @@ type modList struct {
 }
 
 // writeModList writes mod-list.json enabling base + every supplied name, de-duped
-// and with base first.
+// and with base first. Expansion mods that DLC_SPACE_AGE does not select are
+// written with enabled:false, which is what disabling a DLC means to Factorio.
 func (m *Manager) writeModList(enabledNames []string) error {
 	seen := map[string]bool{}
 	var ordered []string
@@ -361,9 +491,27 @@ func (m *Manager) writeModList(enabledNames []string) error {
 			ordered = append(ordered, name)
 		}
 	}
+
+	dlcEnabled := selectedDLC(m.dlc)
+	for _, name := range dlcMods {
+		if !dlcEnabled[name] && !seen[name] {
+			seen[name] = true
+			ordered = append(ordered, name)
+		}
+	}
+
 	ml := modList{Mods: make([]modListEntry, 0, len(ordered))}
+	var disabled []string
 	for _, name := range ordered {
-		ml.Mods = append(ml.Mods, modListEntry{Name: name, Enabled: true})
+		enabled := true
+		if slices.Contains(dlcMods, name) && !dlcEnabled[name] {
+			enabled = false
+			disabled = append(disabled, name)
+		}
+		ml.Mods = append(ml.Mods, modListEntry{Name: name, Enabled: enabled})
+	}
+	if len(disabled) > 0 {
+		m.logf("DLC_SPACE_AGE=%q disables: %s", m.dlc, strings.Join(disabled, ", "))
 	}
 	data, err := json.MarshalIndent(ml, "", "  ")
 	if err != nil {

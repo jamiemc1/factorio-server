@@ -11,6 +11,10 @@ kill_timeout = '2m0s'
 [build]
 
 [env]
+  # Factorio headless build to install on boot. Accepts an exact 'x.y.z' or the
+  # channel keywords 'experimental' / 'stable'. Note that 'stable' currently
+  # lags well behind and would refuse to load a 2.1 save.
+  FACTORIO_VERSION = 'experimental'
   # Enable only the elevated-rails DLC mod (disables space-age + quality).
   # This env var accepts a space-separated list of DLC mod names.
   DLC_SPACE_AGE = 'elevated-rails'
@@ -30,6 +34,14 @@ kill_timeout = '2m0s'
   auto_start_machines = true
   min_machines_running = 1
   processes = ['app']
+
+# Persistent storage for the game install, mods and saves. Without it every boot
+# re-downloads ~1.5GB of mods and the save from S3; with it, S3 is only touched
+# when the volume is new (or holds a save older than the one in the bucket).
+[mounts]
+  source = 'factorio_data'
+  destination = '/factorio'
+  initial_size = '10gb'
 
 [[services]]
   protocol = 'udp'
